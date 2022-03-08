@@ -1,0 +1,11 @@
+[Unit]
+Description=Download GOES service
+StartLimitIntervalSec=0
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=paprika
+ExecStart=/home/paprika/Documents/Sistemas_operativos_2/practico/soii-2021-sistemas-embebidos-JimenaVega/bin/us_down
+[Install]
+WantedBy=multi-user.target
