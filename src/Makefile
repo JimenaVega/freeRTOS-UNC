@@ -53,7 +53,7 @@ LIBS= hw_include/libdriver.a
 #
 # The default rule, which causes init to be built.
 #
-all: clean ${COMPILER}           \
+all: ${COMPILER}           \
      ${COMPILER}/RTOSDemo.axf \
 	 
 #
