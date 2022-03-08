@@ -1,2 +1,7 @@
-# freeRTOS-UNC
-TP4 de la materia Sistemas Operativos 2 para la carrera Ingenieria en computacion de la FCEFYN-UNC
+SO2 - 2021 - UNC
+
+Ejecutar con:
+
+```
+qemu-system-arm -serial stdio -machine lm3s811evb -kernel gcc/RTOSDemo.axf
+```
