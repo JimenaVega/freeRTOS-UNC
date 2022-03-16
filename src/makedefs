@@ -90,7 +90,7 @@ LD=arm-none-eabi-ld
 #
 # The flags passed to the linker.
 #
-LDFLAGS= -Map gcc/out.map
+LDFLAGS= -Map gcc/out.map 
 
 #
 # Get the location of libgcc.a from the GCC front-end.

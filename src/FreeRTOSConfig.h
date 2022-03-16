@@ -48,7 +48,7 @@
 #define configMINIMAL_STACK_SIZE	( ( unsigned short ) 70 )
 #define configTOTAL_HEAP_SIZE		( ( size_t ) ( 7000 ) )
 #define configMAX_TASK_NAME_LEN		( 10 )
-#define configUSE_TRACE_FACILITY	1
+#define configUSE_TRACE_FACILITY	1 //Top statistics
 #define configUSE_16_BIT_TICKS		0
 #define configIDLE_SHOULD_YIELD		0
 #define configUSE_CO_ROUTINES 		0
@@ -68,10 +68,13 @@ to exclude the API function. */
 #define INCLUDE_vTaskDelay				1
 
 //cosas agregadas
-//#define configGENERATE_RUN_TIME_STATS           1
-//#define configSUPPORT_STATIC_ALLOCATION             1
-//#define configSUPPORT_DYNAMIC_ALLOCATION            1
-//#define configUSE_STATS_FORMATTING_FUNCTIONS    1
+#define configGENERATE_RUN_TIME_STATS           1
+// #define configSUPPORT_STATIC_ALLOCATION             1
+#define configSUPPORT_DYNAMIC_ALLOCATION            1
+#define INCLUDE_uxTaskGetStackHighWaterMark 1 //ver si sacar
+// #define configUSE_STATS_FORMATTING_FUNCTIONS    1
+#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS() ( 0UL )
+#define portGET_RUN_TIME_COUNTER_VALUE()    (xTaskGetTickCount()*10)
 
 #define configKERNEL_INTERRUPT_PRIORITY 		255
 /* !!!! configMAX_SYSCALL_INTERRUPT_PRIORITY must not be set to zero !!!!
