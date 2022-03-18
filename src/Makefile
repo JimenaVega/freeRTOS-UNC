@@ -32,7 +32,7 @@ CFLAGS+=-I hw_include -I . -I ${RTOS_SOURCE_DIR}/include -I ${RTOS_SOURCE_DIR}/p
 CFLAGS+= -g
 
 VPATH=${RTOS_SOURCE_DIR}:${RTOS_SOURCE_DIR}/portable/MemMang:${RTOS_SOURCE_DIR}/portable/GCC/ARM_CM3:${DEMO_SOURCE_DIR}:init:hw_include
-# ${COMPILER}/syscalls.o
+
 OBJS=${COMPILER}/main.o	\
 	  ${COMPILER}/list.o    \
       ${COMPILER}/queue.o   \

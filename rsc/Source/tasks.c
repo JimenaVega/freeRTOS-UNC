@@ -1,3 +1,4 @@
+
 /*
  * FreeRTOS Kernel V10.4.3
  * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
@@ -4626,8 +4627,10 @@ static void prvResetNextTaskUnblockTime( void )
                             }
                         #endif
                     }
-
+                    OSRAMClear();
+			        OSRAMStringDraw(pcWriteBuffer ,  0x3f, 0x01);
                     pcWriteBuffer += strlen( pcWriteBuffer ); /*lint !e9016 Pointer arithmetic ok on char pointers especially as in this case where it best denotes the intent of the code. */
+
                 }
             }
             else

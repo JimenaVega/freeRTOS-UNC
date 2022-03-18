@@ -1,4 +1,3 @@
-
 /*
  * FreeRTOS V202104.00
  * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
@@ -18,11 +17,14 @@
 #include "PollQ.h"
 #include "semtest.h"
 #include "BlockQ.h"
-#include <stdlib.h>
-#include <stdio.h>
+
 #include <string.h>
 
-
+#define configSENSOR_STACK_SIZE     ( ( unsigned short ) (40) )  //watermark = 32
+#define configFILTER_STACK_SIZE     ( ( unsigned short ) (60 )  // watermark = 12
+#define configDISPLAY_STACK_SIZE     ( ( unsigned short ) (86) ) //en un comienzo dio 0
+//#define configCMD_STACK_SIZE     ( ( unsigned short ) (42) )
+#define configTOP_STACK_SIZE     ( ( unsigned short ) (100) ) //en un comienzo dio 0
 //mine
 //#include <math.h>
 
@@ -31,7 +33,7 @@
 
 /* UART configuration - note this does not use the FIFO so is not very
 efficient. */
-#define mainBAUD_RATE				( 57600 )
+#define mainBAUD_RATE				( 19200 )
 #define mainFIFO_SET				( 0x10 )
 
 /* Demo task priorities. */
@@ -47,8 +49,8 @@ efficient. */
 #define mainQUEUE_SIZE				( 3 )
 #define mainDEBOUNCE_DELAY			( ( TickType_t ) 150 / portTICK_PERIOD_MS )
 #define mainNO_DELAY				( ( TickType_t ) 0 )
-#define mainTOP_DELAY				( ( TickType_t ) 2000 / portTICK_PERIOD_MS )  
-#define mainDISPLAY_DELAY			( ( TickType_t ) 200 / portTICK_PERIOD_MS ) 
+#define mainTOP_DELAY				( ( TickType_t ) 2000 / portTICK_PERIOD_MS )   
+
 
 //#define N 10
 #define STEP 8
@@ -61,7 +63,6 @@ static volatile unsigned int uxCPULoadCount   = (unsigned int) 0U; // For 0 to c
 
 //----------------------------
 /* String that is transmitted on the UART. */
-static char *cMessage = "pos me mato QAQ\n";
 static volatile char *pcNextChar;
 
 
@@ -69,21 +70,20 @@ static volatile char *pcNextChar;
 //Funciones
 static void prvSetupHardware( void );
 static char* intToChar(int val);
-char* longToChar(unsigned long value, char *ptr, int base);
-void printStatistics(char* taskName, UBaseType_t waterMark);
-static void testTask(void *p);
-void getBaseGraph(unsigned char *pucImage, int avg);
-void sendToUART(char* data);
+char* ultostr(unsigned long value, char *ptr, int base);
 void vTaskGetStats( char *pcWriteBuffer );
+void printStatistics(char* taskName, UBaseType_t waterMark);
+static void sendToUART(char* data);
 //Task
 static void vDisplayTask( void *pvParameter );
 static void vWaterMark(void *pvParameters);
 static void vFilterTask(void *pvParameters);
 static void vTempSensorTask(void *p);
-//static void vUARTTask(void* p);
-static void vTopTask(void *p);
+static void vTopTask( void *pvParameters );
 
 
+static void testTask(void *p);
+void getBaseGraph(unsigned char *pucImage, int avg);
 
 /* The queue used to send strings to the print task for display on the LCD. */
 QueueHandle_t xAvgQueue;
@@ -102,21 +102,15 @@ int main(void){
 	prvSetupHardware();
 
 	/* Create the queue used to pass message to vDisplayTask. */
-	xAvgQueue = xQueueCreate(mainQUEUE_SIZE, sizeof( char * ));
-	xPrintQueue = xQueueCreate(mainQUEUE_SIZE, sizeof( char * ));
-	xUARTQueue = xQueueCreate(mainQUEUE_SIZE, sizeof( char * ));
-	//1 Filter
-	//2 Sensor
-	//3 Display
-	//4 Top
-	//5 Water mark
+	xAvgQueue = xQueueCreate( mainQUEUE_SIZE, sizeof( char * ));
+	xPrintQueue = xQueueCreate( mainQUEUE_SIZE, sizeof( char * ));
+	xUARTQueue = xQueueCreate( mainQUEUE_SIZE, sizeof( char * ));
+
 	/* Start the tasks defined within the file. */
-	xTaskCreate(vFilterTask, "Fil", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &filterHandle );
-	xTaskCreate(vTempSensorTask, "Sen", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &sensorHandle);
-	xTaskCreate(vDisplayTask, "Dis", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &displayHandle );
-	//xTaskCreate(vWaterMark, "WM", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL);
-	//xTaskCreate(vTopTask, "Top", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL);
-	
+	xTaskCreate(vFilterTask, "Filter", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &filterHandle );
+	xTaskCreate(vTempSensorTask, "Sensor", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &sensorHandle);
+	xTaskCreate(vDisplayTask, "Display", configDISPLAY_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &displayHandle );
+	xTaskCreate(vTopTask,"Top", configTOP_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL);
 	//Start the scheduler.
 	vTaskStartScheduler();
 
@@ -135,14 +129,9 @@ static void prvSetupHardware( void ){
 	//Configure the UART for 8-N-1 operation.
 	UARTConfigSet( UART0_BASE, mainBAUD_RATE, UART_CONFIG_WLEN_8 | UART_CONFIG_PAR_NONE | UART_CONFIG_STOP_ONE );
 
-	/* We don't want to use the fifo.  This is for test purposes to generate
-	as many interrupts as possible. */
-	HWREG( UART0_BASE + UART_O_LCR_H ) &= ~mainFIFO_SET;
-
 	//Enable Tx interrupts.
-	// UARTIntEnable(UART0_BASE, UART_INT_RX);
-	// UARTIntEnable(UART0_BASE, UART_INT_TX);
-	HWREG( UART0_BASE + UART_O_IM ) |= ( UART_INT_TX | UART_INT_RX );
+	UARTIntEnable(UART0_BASE, UART_INT_RX);
+	UARTIntEnable(UART0_BASE, UART_INT_TX);
 	IntPrioritySet( INT_UART0, configKERNEL_INTERRUPT_PRIORITY );
 	IntEnable(INT_UART0);
 
@@ -158,8 +147,10 @@ static void vTempSensorTask(void *p){
 
 	int temp = 0;
 	int t = 1;
-	const TickType_t xDelay = 10; //10ms 100 Hz
+	const TickType_t xDelay = 10; //100 Hz
 	int delta = 1;
+	// UBaseType_t taskWaterMark;
+	// char aux[16];
 
 	for(;;){
 
@@ -179,6 +170,13 @@ static void vTempSensorTask(void *p){
 		}
 	
 		xQueueSend(xAvgQueue, &t, portMAX_DELAY);
+
+		
+
+		// taskWaterMark = uxTaskGetStackHighWaterMark(NULL);
+		// sendToUART(ultostr(taskWaterMark, aux, 10));
+		// sendToUART("\n");
+		
 		vTaskDelay(xDelay);
 		
 	}
@@ -197,44 +195,24 @@ static char* intToChar(int val){
 
 }
 
-char *longToChar(unsigned long value, char *ptr, int base) {
-    unsigned long t = 0, res = 0;
-	unsigned long tmp = value;
-	int count = 0;
+static void sendToUART(char* data){
+	UARTIntDisable(UART0_BASE, UART_INT_TX);
+	{
+		pcNextChar = data;
 
-	if (NULL == ptr) {
-	return NULL;
+		/* Send the first character. */
+		if(!(HWREG(UART0_BASE + UART_O_FR) & UART_FR_TXFF)){
+			HWREG(UART0_BASE + UART_O_DR) = *pcNextChar;
+		}
+
+		pcNextChar++;
 	}
 
-	if (tmp == 0) {
-	count++;
-	}
-
-	while(tmp > 0){
-	tmp = tmp/base;
-	count++;
-	}
-
-	ptr += count;
-
-	*ptr = '\0';
-
-	do {
-	res = value - base * (t = value / base);
-
-	if (res < 10 ){
-		* -- ptr = '0' + res;
-	}
-	else if ((res >= 10) && (res < 16)) {
-		* --ptr = 'A' - 10 + res;
-	}
-	} while ((value = t) != 0);
-
-	return(ptr);
+	UARTIntEnable(UART0_BASE, UART_INT_TX);
 }
-
 static void vFilterTask(void *pvParameters){
 
+	
 	char* output = "";
 	const TickType_t xDelay = 10; //100ms
 	unsigned char *pucImage;
@@ -247,7 +225,11 @@ static void vFilterTask(void *pvParameters){
 
 	int rcv = 0;
 	int avg = 0;
+
+	// UBaseType_t taskWaterMark;
+	// char aux[16];
 	
+
 	for(;;){
 
 		int acum = 0;
@@ -272,7 +254,13 @@ static void vFilterTask(void *pvParameters){
 		output = intToChar(avg);
 
 		xQueueSend(xPrintQueue, &avg, portMAX_DELAY);
+
+		// taskWaterMark = uxTaskGetStackHighWaterMark(NULL);
+		// sendToUART(ultostr(taskWaterMark, aux, 10));
+		// sendToUART("\n");
+
 		vTaskDelay(xDelay);
+		
 	}
 
 }
@@ -283,17 +271,11 @@ static void vDisplayTask(void *pvParameters){
     unsigned portBASE_TYPE uxLine = 0, uxRow = 0;
     unsigned char pucImage[128] = {0};
     uint8_t value_height;
-	//TickType_t xLastExecutionTime;
 
-	/* Initialise xLastExecutionTime so the first call to vTaskDelayUntil()
-	works correctly. */
-	//xLastExecutionTime = xTaskGetTickCount();
-
+	UBaseType_t taskWaterMark;
+	char aux[16];
 
     for( ;; ){
-		/* Perform this check every mainCHECK_DELAY milliseconds. */
-		//vTaskDelayUntil( &xLastExecutionTime, mainDISPLAY_DELAY );
-		//vTaskDelay(20);
        
         xQueueReceive(xPrintQueue, &message, portMAX_DELAY);
         
@@ -315,56 +297,11 @@ static void vDisplayTask(void *pvParameters){
         }
         
         OSRAMImageDraw(pucImage, 16, 0, 64, 2);
+
+		// taskWaterMark = uxTaskGetStackHighWaterMark(NULL);
+		// sendToUART(ultostr(taskWaterMark, aux, 10));
+		// sendToUART("\n");
     }
-}
-/**
- * @brief 
- * Calcular el stack necesario para cada task. Realizar el análisis utilizando
- * uxTaskGetStackHighWaterMark o vApplicationStackOverflowHook
- * @param pvParameters 
- */
-static void vWaterMark(void *pvParameters){
-
-	UBaseType_t taskWaterMark;
-	
-	for(;;){
-
-		// taskWaterMark = uxTaskGetStackHighWaterMark(filterHandle);
-		// printStatistics("Fil", taskWaterMark);
-		// taskWaterMark = uxTaskGetStackHighWaterMark(sensorHandle);
-		// printStatistics("Sen", taskWaterMark);
-
-
-		// taskWaterMark = uxTaskGetStackHighWaterMark(sensorHandle);
-		// printStatistics("Top", taskWaterMark);
-
-		// taskWaterMark = uxTaskGetStackHighWaterMark(sensorHandle);
-		// printStatistics("Dis", taskWaterMark);
-
-	}
-
-}
-
-void printStatistics(char* taskName, UBaseType_t waterMark){
-
-		char* usedStack = "";
-		char data[150];
-		*data = 0x00;
-
-		usedStack = intToChar((configMINIMAL_STACK_SIZE - waterMark));
-
-		strcat(data,taskName);
-		strcat(data, "\t\t");
-		strcat(data, usedStack);
-		strcat(data, "\n");
-
-		sendToUART(data);
-
-		// OSRAMClear();
-		// OSRAMStringDraw(taskName, 0, 0);
-        // OSRAMStringDraw(usedStack, 0x3f, 0);
-		vTaskDelay(1000);
-
 }
 
 
@@ -378,12 +315,13 @@ static void vTopTask( void *pvParameters )
 	/* Initialise xLastExecutionTime so the first call to vTaskDelayUntil()
 	works correctly. */
 	xLastExecutionTime = xTaskGetTickCount();
+	UBaseType_t taskWaterMark;
+	char aux[16];
 
 	for( ;; )
 	{
 		/* Perform this check every mainCHECK_DELAY milliseconds. */
 		vTaskDelayUntil( &xLastExecutionTime, mainTOP_DELAY );
-		//vTaskDelay(1000);
 
 		vTaskGetStats(pcWriteBuffer);
 
@@ -400,6 +338,10 @@ static void vTopTask( void *pvParameters )
 			pcNextChar++;
 		}
 		UARTIntEnable(UART0_BASE, UART_INT_TX);	
+
+		taskWaterMark = uxTaskGetStackHighWaterMark(NULL);
+		sendToUART(ultostr(taskWaterMark, aux, 10));
+		//sendToUART("\n");
 	}
 }
 
@@ -412,95 +354,120 @@ void vTaskGetStats( char *pcWriteBuffer )
 	uint32_t ulTotalRunTime, ulStatsAsPercentage;
 	char buffer[10];
 
-	// Make sure the write buffer does not contain a string.
-	*pcWriteBuffer = 0x00;
+		// Make sure the write buffer does not contain a string.
+		*pcWriteBuffer = 0x00;
 
-	// Take a snapshot of the number of tasks in case it changes while this
-	// function is executing.
-	uxArraySize = uxTaskGetNumberOfTasks();
+		// Take a snapshot of the number of tasks in case it changes while this
+		// function is executing.
+		uxArraySize = uxTaskGetNumberOfTasks();
 
-	// Allocate a TaskStatus_t structure for each task.  An array could be
-	// allocated statically at compile time.
-	pxTaskStatusArray = pvPortMalloc( uxArraySize * sizeof( TaskStatus_t ) );
+		// Allocate a TaskStatus_t structure for each task.  An array could be
+		// allocated statically at compile time.
+		pxTaskStatusArray = pvPortMalloc( uxArraySize * sizeof( TaskStatus_t ) );
 
-	if( pxTaskStatusArray != NULL )
-	{
-		// Generate raw status information about each task.
-		uxArraySize = uxTaskGetSystemState( pxTaskStatusArray, uxArraySize, &ulTotalRunTime );
-
-		// For percentage calculations.
-		ulTotalRunTime /= 100UL;
-
-		// Avoid divide by zero errors.
-		if( ulTotalRunTime > 0 )
+		if( pxTaskStatusArray != NULL )
 		{
-			//strcat(pcWriteBuffer,"Task\t\tAbs Time\t%Time\n");
-			//strcat(pcWriteBuffer,"Task\t\tAbs Time\n");
-			// strcat(pcWriteBuffer,"-------------------------------------\n");
-			// For each populated position in the pxTaskStatusArray array,
-			// format the raw data as human readable ASCII data
-			for( x = 0; x < uxArraySize; x++ )
-			{
-				// What percentage of the total run time has the task used?
-				// This will always be rounded down to the nearest integer.
-				// ulTotalRunTimeDiv100 has already been divided by 100.
-				ulStatsAsPercentage = pxTaskStatusArray[ x ].ulRunTimeCounter / ulTotalRunTime;
+			// Generate raw status information about each task.
+			uxArraySize = uxTaskGetSystemState( pxTaskStatusArray, uxArraySize, &ulTotalRunTime );
 
-				if( ulStatsAsPercentage > 0UL )
+			// For percentage calculations.
+			ulTotalRunTime /= 100UL;
+
+			// Avoid divide by zero errors.
+			if( ulTotalRunTime > 0 )
+			{
+				strcat(pcWriteBuffer,"Task\t\tAbs Time\t%Time\n");
+				strcat(pcWriteBuffer,"-------------------------------------\n");
+				// For each populated position in the pxTaskStatusArray array,
+				// format the raw data as human readable ASCII data
+				for( x = 0; x < uxArraySize; x++ )
 				{
-					strcat(pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName);
-					strcat(pcWriteBuffer,"\t\t");
-					strcat(pcWriteBuffer, longToChar(pxTaskStatusArray[ x ].ulRunTimeCounter, buffer, 10));
-					//strcat(pcWriteBuffer,"\n");
-					strcat(pcWriteBuffer,"\t\t");
-					strcat(pcWriteBuffer,longToChar(ulStatsAsPercentage, buffer, 10));
-					strcat(pcWriteBuffer,"%\r\n");
+					// What percentage of the total run time has the task used?
+					// This will always be rounded down to the nearest integer.
+					// ulTotalRunTimeDiv100 has already been divided by 100.
+					ulStatsAsPercentage = pxTaskStatusArray[ x ].ulRunTimeCounter / ulTotalRunTime;
+
+					if( ulStatsAsPercentage > 0UL )
+					{
+						strcat(pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName);
+						strcat(pcWriteBuffer,"\t\t");
+						strcat(pcWriteBuffer, ultostr(pxTaskStatusArray[ x ].ulRunTimeCounter, buffer, 10));
+						strcat(pcWriteBuffer,"\t\t");
+						strcat(pcWriteBuffer,ultostr(ulStatsAsPercentage, buffer, 10));
+						strcat(pcWriteBuffer,"%\r\n");
+					}
+					else
+					{
+					// 	// If the percentage is zero here then the task has
+					// 	// consumed less than 1% of the total run time.
+						strcat(pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName);
+						strcat(pcWriteBuffer,"\t\t");
+						strcat(pcWriteBuffer, ultostr(pxTaskStatusArray[ x ].ulRunTimeCounter, buffer, 10));
+						strcat(pcWriteBuffer,"\t\t");
+						strcat(pcWriteBuffer,"<1%");
+						strcat(pcWriteBuffer,"\r\n");
+					}
+					
+					pcWriteBuffer += strlen( ( char * ) pcWriteBuffer );
 				}
-				else
-				{
-				// 	// If the percentage is zero here then the task has
-				// 	// consumed less than 1% of the total run time.
-					strcat(pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName);
-					strcat(pcWriteBuffer,"\t\t");
-					strcat(pcWriteBuffer, longToChar(pxTaskStatusArray[ x ].ulRunTimeCounter, buffer, 10));
-					//strcat(pcWriteBuffer,"\n");
-					strcat(pcWriteBuffer,"\t\t");
-					strcat(pcWriteBuffer,"<1%");
-					strcat(pcWriteBuffer,"\r\n");
-				}
-				
+				strcat(pcWriteBuffer, "\n\n");
 				pcWriteBuffer += strlen( ( char * ) pcWriteBuffer );
 			}
-			strcat(pcWriteBuffer, "\n\n");
-			pcWriteBuffer += strlen( ( char * ) pcWriteBuffer );
+
+			// The array is no longer needed, free the memory it consumes.
+			vPortFree( pxTaskStatusArray );
 		}
-
-		// The array is no longer needed, free the memory it consumes.
-		//vPortFree( pxTaskStatusArray );
-	}
 }
-void sendToUART(char* data){
 
-	UARTIntDisable(UART0_BASE, UART_INT_TX );
-	{
-		pcNextChar = data;
+char *ultostr(unsigned long value, char *ptr, int base)
+{
+  unsigned long t = 0, res = 0;
+  unsigned long tmp = value;
+  int count = 0;
 
-		/* Send the first character. */
-		if(!( HWREG(UART0_BASE + UART_O_FR ) & UART_FR_TXFF ) ){
-			HWREG(UART0_BASE + UART_O_DR ) = *pcNextChar;
-		}
+  if (NULL == ptr)
+  {
+    return NULL;
+  }
 
-		pcNextChar++;
-	}
-	UARTIntEnable(UART0_BASE, UART_INT_TX);
+  if (tmp == 0)
+  {
+    count++;
+  }
+
+  while(tmp > 0)
+  {
+    tmp = tmp/base;
+    count++;
+  }
+
+  ptr += count;
+
+  *ptr = '\0';
+
+  do
+  {
+    res = value - base * (t = value / base);
+    if (res < 10)
+    {
+      * -- ptr = '0' + res;
+    }
+    else if ((res >= 10) && (res < 16))
+    {
+        * --ptr = 'A' - 10 + res;
+    }
+  } while ((value = t) != 0);
+
+  return(ptr);
 }
+
+
 
 void vUART_ISR(void) {
 
 	unsigned long ulStatus;
 	char* rxChar;
 	int rxNum;
-	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
 
 	// What caused the interrupt. 
 	ulStatus = UARTIntStatus(UART0_BASE, pdTRUE );
@@ -509,7 +476,7 @@ void vUART_ISR(void) {
 	UARTIntClear(UART0_BASE, ulStatus );
 
 	//Was a Tx interrupt pending? 
-	if(ulStatus & UART_INT_TX) {
+	if(ulStatus & UART_INT_TX){
 		//Send the next character in the string.  We are not using the FIFO. 
 		if( *pcNextChar != 0 ){
 
@@ -523,14 +490,514 @@ void vUART_ISR(void) {
 
 	if(ulStatus & UART_INT_RX){
 
-		if((HWREG(UART0_BASE + UART_O_FR ) & UART_FR_RXFF)){
+		rxNum = UARTCharGet(UART0_BASE) - 48;
 
-			rxNum = UARTCharGet(UART0_BASE) - 48;
-			// rxChar = intToChar(rxNum);
-			// OSRAMClear();
-			// OSRAMStringDraw(rxChar , 0, 0);
-			xQueueSend(xUARTQueue, &rxNum, portMAX_DELAY);
-		}
+		// rxChar = intToChar(rxNum);
+		
+		// OSRAMClear();
+		// OSRAMStringDraw(rxChar , 0, 0);
+
+		xQueueSend(xUARTQueue, &rxNum, portMAX_DELAY);
+		
 	}
-	portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
+
+
+//--------------------------------------------------
+/*
+ * FreeRTOS Kernel V10.3.0
+ * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * http://www.FreeRTOS.org
+ * http://aws.amazon.com/freertos
+ *
+ * 1 tab == 4 spaces!
+ */
+
+
+
+
+
+// /* Demo app includes. */
+// #include "integer.h"
+// #include "PollQ.h"
+// #include "semtest.h"
+// #include "BlockQ.h"
+
+// /* Delay between cycles of the 'check' task. 100 ms */
+// #define mainSENSOR_DELAY						( ( TickType_t ) 10 / portTICK_PERIOD_MS )
+// #define mainDISPLAY_DELAY						( ( TickType_t ) 200 / portTICK_PERIOD_MS )
+// #define mainTOP_DELAY						( ( TickType_t ) 2000 / portTICK_PERIOD_MS )   
+
+// /* UART configuration - note this does not use the FIFO so is not very
+// efficient. */
+// #define mainFIFO_SET				( 0x10 )
+// /* The baud rate used by the UART comms tasks/co-routine. */
+// #define mainBAUD_RATE				( 57600 )
+
+// /* Demo task priorities. */
+// #define mainQUEUE_POLL_PRIORITY		( tskIDLE_PRIORITY + 2 )
+// #define mainCHECK_TASK_PRIORITY		( tskIDLE_PRIORITY + 3 )
+// #define mainSEM_TEST_PRIORITY		( tskIDLE_PRIORITY + 1 )
+// #define mainBLOCK_Q_PRIORITY		( tskIDLE_PRIORITY + 2 )
+// #define mainCOMMS_RX_TASK_PRIORITY	( tskIDLE_PRIORITY + 1 )
+
+
+// /* Misc. */
+// #define mainQUEUE_SIZE				( 3 )
+// #define mainRX_QUEUE_LEN			( 5 )
+// #define mainDEBOUNCE_DELAY			( ( TickType_t ) 150 / portTICK_PERIOD_MS )
+// #define mainNO_DELAY				( ( TickType_t ) 0 )
+
+
+// /* The time the Comms Rx task should wait to receive a character.  This should
+// be slightly longer than the time between transmissions.  If we do not receive
+// a character after this time then there must be an error in the transmission or
+// the timing of the transmission. */
+
+// #define max_N 10
+// #define min_N 1
+// /*
+//  * Configure the processor and peripherals for this demo.
+//  */
+// static void prvSetupHardware( void );
+
+// /*
+//  * The 'check' task, as described at the top of this file.
+//  */
+// static void vSensorTask( void *pvParameters );
+
+
+// /*
+//  * The task that controls access to the LCD.
+//  */
+// static void vDisplayTask( void *pvParameter );
+
+// static void vTopTask( void *pvParameters );
+
+// static void vFilterTask( void *pvParameter );
+
+// /*
+//  * The task that receives the characters from UART 0.
+//  */
+// static void vCommsRxTask( void * pvParameters );
+
+// void vTaskGetStats( char *pcWriteBuffer );
+// char *ultostr(unsigned long value, char *ptr, int base);
+
+
+// /* The queue used to send values to the Filter task */
+// QueueHandle_t xSensorQueue;
+
+// /* The queue used to transmit characters from the interrupt to the Comms Rx
+// task. */
+// static QueueHandle_t xCommsQueue;
+
+// int avg_value;
+// int filter_value;
+// static const int n_values[] = {1,2,3,4,5,6,7,8,9,10};
+// int values[max_N] = {0,0,0,0,0,0,0,0,0,0};
+
+// /* The next character to transmit. */
+// static volatile char *pcNextChar;
+
+
+// static const char display_values[][2] = {
+// 					{0x00, 0x80},
+// 					{0x00, 0x40},
+// 					{0x00, 0x20},
+// 					{0x00, 0x10},
+// 					{0x00, 0x08},
+// 					{0x00, 0x04},
+// 					{0x00, 0x02},
+// 					{0x00, 0x01},
+// 					{0x80, 0x00},
+// 					{0x40, 0x00},
+// 					{0x20, 0x00},
+// 					{0x10, 0x00},
+// 					{0x08, 0x00},
+// 					{0x04, 0x00},
+// 					{0x02, 0x00},
+// 					{0x01, 0x00},
+//     };
+
+// /*-----------------------------------------------------------*/
+
+// int main( void )
+// {
+// 	/* Create the queue used to communicate between the UART ISR and the Comms
+// 	Rx task. */
+// 	xCommsQueue = xQueueCreate( mainRX_QUEUE_LEN, sizeof( char ) );
+	
+// 	/* Configure the clocks, UART and GPIO. */
+// 	prvSetupHardware();
+
+// 	/* Create the queue used to pass message to vFilterTask. */
+// 	xSensorQueue = xQueueCreate( mainQUEUE_SIZE, sizeof( int ) );
+
+// 	/* Start the tasks defined within the file. */
+// 	xTaskCreate( vSensorTask, "Sensor", configSENSOR_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL );
+// 	xTaskCreate( vFilterTask, "Filter", configFILTER_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY - 1, NULL );
+// 	xTaskCreate( vDisplayTask, "Display", configDISPLAY_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY - 1, NULL );
+// 	xTaskCreate( vCommsRxTask, "cmd", configCMD_STACK_SIZE, NULL, mainCOMMS_RX_TASK_PRIORITY, NULL );
+// 	xTaskCreate( vTopTask, "Top", configTOP_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY - 1, NULL );
+
+
+// 	filter_value = 9;
+	
+// 	/* Start the scheduler. */
+// 	vTaskStartScheduler();
+
+// 	/* Will only get here if there was insufficient heap to start the
+// 	scheduler. */
+
+// 	return 0;
+// }
+// /*-----------------------------------------------------------*/
+
+// static void vSensorTask( void *pvParameters )
+// {
+// 	TickType_t xLastExecutionTime;
+// 	int value = 15;
+// 	int mode = 1;
+
+// 	/* Initialise xLastExecutionTime so the first call to vTaskDelayUntil()
+// 	works correctly. */
+// 	xLastExecutionTime = xTaskGetTickCount();
+	
+// 	for( ;; )
+// 	{
+// 		/* Perform this check every mainCHECK_DELAY milliseconds. */
+// 		vTaskDelayUntil( &xLastExecutionTime, mainSENSOR_DELAY );
+		
+// 		if(++value == 31) value = 15;
+
+// 		xQueueSend( xSensorQueue, &value, portMAX_DELAY );
+// 	}
+// }
+// /*-----------------------------------------------------------*/
+
+// static void prvSetupHardware( void )
+// {
+
+// 	/* Setup the PLL. */
+// 	SysCtlClockSet( SYSCTL_SYSDIV_10 | SYSCTL_USE_PLL | SYSCTL_OSC_MAIN | SYSCTL_XTAL_6MHZ );
+	
+// 	/* Enable the UART.  */
+// 	SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
+
+// 	/* Configure the UART for 8-N-1 operation. */
+// 	UARTConfigSet( UART0_BASE, mainBAUD_RATE, UART_CONFIG_WLEN_8 | UART_CONFIG_PAR_NONE | UART_CONFIG_STOP_ONE );
+
+// 	/* We don't want to use the fifo.  This is for test purposes to generate
+// 	as many interrupts as possible. */
+// 	HWREG( UART0_BASE + UART_O_LCR_H ) &= ~mainFIFO_SET;
+
+// 	/* Enable Rx interrupts. */
+// 	HWREG( UART0_BASE + UART_O_IM ) |= ( UART_INT_TX | UART_INT_RX );
+// 	IntPrioritySet( INT_UART0, configKERNEL_INTERRUPT_PRIORITY );
+// 	IntEnable( INT_UART0 );
+
+
+// 	/* Initialise the LCD> */
+//     OSRAMInit( false );
+//     OSRAMStringDraw("www.FreeRTOS.org", 0, 0);
+// 	OSRAMStringDraw("LM3S811 demo", 16, 1);
+// }
+
+// void vUART_ISR(void)
+// {
+// 	unsigned long ulStatus;
+// 	char cRxedChar;
+// 	portBASE_TYPE xHigherPriorityTaskWoken = pdFALSE;
+// 	/* What caused the interrupt. */
+// 	ulStatus = UARTIntStatus( UART0_BASE, pdTRUE );
+
+// 	/* Clear the interrupt. */
+// 	UARTIntClear( UART0_BASE, ulStatus );
+
+// 	/* Was a Rx interrupt pending? */
+// 	if( ulStatus & UART_INT_RX )
+// 	{
+// 		if( ( HWREG(UART0_BASE + UART_O_FR ) & UART_FR_RXFF ) )
+// 		{
+// 			/* Get the char from the buffer and post it onto the queue of
+// 			Rxed chars.  Posting the character should wake the task that is 
+// 			blocked on the queue waiting for characters. */
+// 			cRxedChar = ( char ) HWREG( UART0_BASE + UART_O_DR );
+// 			xQueueSendFromISR( xCommsQueue, &cRxedChar, &xHigherPriorityTaskWoken );
+// 		}		
+// 	}
+
+// 		/* Was a Tx interrupt pending? */
+// 	if( ulStatus & UART_INT_TX )
+// 	{
+// 		/* Send the next character in the string.  We are not using the FIFO. */
+// 		if( *pcNextChar != 0 )
+// 		{
+// 			if( !( HWREG( UART0_BASE + UART_O_FR ) & UART_FR_TXFF ) )
+// 			{
+// 				HWREG( UART0_BASE + UART_O_DR ) = *pcNextChar;
+// 			}
+// 			pcNextChar++;
+// 		}
+// 	}
+
+// 	/* If a task was woken by the character being received then we force
+// 	a context switch to occur in case the task is of higher priority than
+// 	the currently executing task (i.e. the task that this interrupt 
+// 	interrupted.) */
+// 	portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
+// }
+// /*-----------------------------------------------------------*/
+
+// static void vFilterTask( void *pvParameters )
+// {
+// 	int value, aux, aux1, i;
+// 	int index = 0;
+
+// 	for( ;; )
+// 	{
+// 		/* Wait for a message to arrive. */
+// 		xQueueReceive( xSensorQueue, &value, portMAX_DELAY );
+// 		aux = values[0];
+// 		values[0] = value;
+// 		for(i = 1; i < max_N; i++)
+// 		{
+// 			aux1 = values[i];
+// 			values[i] = aux;
+// 			aux = aux1;
+// 		}
+// 		aux = 0;
+// 		index = 0;
+// 		for(i = 0; i < n_values[filter_value]; i++)
+// 		{
+// 			if(values[i] != 0)
+// 			{
+// 				aux += values[i];
+// 				index++;
+// 			}
+// 		}
+
+// 		avg_value = aux / index;
+// 	}
+// }
+
+// /*-----------------------------------------------------------*/
+
+// static void vDisplayTask( void *pvParameters )
+// {
+// 	TickType_t xLastExecutionTime;
+// 	int value = 15;
+// 	int mode = 1;
+// 	static unsigned long ulX = 0;
+// 	static unsigned long ulY = 0;
+
+// 	OSRAMClear();
+// 	OSRAMStringDraw("30", 85, 0);
+// 	OSRAMStringDraw("15", 85, 1);
+	
+// 	/* Initialise xLastExecutionTime so the first call to vTaskDelayUntil()
+// 	works correctly. */
+// 	xLastExecutionTime = xTaskGetTickCount();
+
+// 	for( ;; )
+// 	{
+// 		/* Perform this check every mainCHECK_DELAY milliseconds. */
+// 		vTaskDelayUntil( &xLastExecutionTime, mainDISPLAY_DELAY );
+		
+// 		OSRAMImageDraw (display_values[avg_value - 15],ulX,0,1,2);
+// 		if(++ulX == 85) 
+// 		{
+// 			ulX = 10;
+// 			OSRAMClear();
+// 			OSRAMStringDraw("30", 85, 0);
+// 			OSRAMStringDraw("15", 85, 1);
+// 		}
+// 	}
+// }
+// /*-----------------------------------------------------------*/
+
+// static void vCommsRxTask( void * pvParameters )
+// {
+// 	char rec_uart;
+// 	for( ;; )
+// 	{
+// 		/* Wait for a character to be received. */
+// 		xQueueReceive( xCommsQueue,&rec_uart, portMAX_DELAY );
+		
+// 		//from 1 to :(10) only
+// 		if(rec_uart >= (min_N + 48) && rec_uart <= (max_N + 48))
+// 		{
+// 			filter_value = rec_uart - 49;
+// 		}
+// 	}
+// }
+// /*-----------------------------------------------------------*/
+
+// static void vTopTask( void *pvParameters )
+// {
+	
+// 	TickType_t xLastExecutionTime;
+// 	char pcWriteBuffer[150];
+
+
+// 	/* Initialise xLastExecutionTime so the first call to vTaskDelayUntil()
+// 	works correctly. */
+// 	xLastExecutionTime = xTaskGetTickCount();
+
+// 	for( ;; )
+// 	{
+// 		/* Perform this check every mainCHECK_DELAY milliseconds. */
+// 		vTaskDelayUntil( &xLastExecutionTime, mainTOP_DELAY );
+
+// 		vTaskGetStats(pcWriteBuffer);
+
+// 		UARTIntDisable( UART0_BASE, UART_INT_TX );
+// 		{
+// 			pcNextChar = pcWriteBuffer;
+
+// 			/* Send the first character. */
+// 			if( !( HWREG( UART0_BASE + UART_O_FR ) & UART_FR_TXFF ) )
+// 			{
+// 				HWREG( UART0_BASE + UART_O_DR ) = *pcNextChar;
+// 			}
+
+// 			pcNextChar++;
+// 		}
+// 		UARTIntEnable(UART0_BASE, UART_INT_TX);	
+// 	}
+// }
+
+// /*-----------------------------------------------------------*/
+
+// void vTaskGetStats( char *pcWriteBuffer )
+// {
+// 	TaskStatus_t *pxTaskStatusArray;
+// 	volatile UBaseType_t uxArraySize, x;
+// 	uint32_t ulTotalRunTime, ulStatsAsPercentage;
+// 	char buffer[10];
+
+// 		// Make sure the write buffer does not contain a string.
+// 		*pcWriteBuffer = 0x00;
+
+// 		// Take a snapshot of the number of tasks in case it changes while this
+// 		// function is executing.
+// 		uxArraySize = uxTaskGetNumberOfTasks();
+
+// 		// Allocate a TaskStatus_t structure for each task.  An array could be
+// 		// allocated statically at compile time.
+// 		pxTaskStatusArray = pvPortMalloc( uxArraySize * sizeof( TaskStatus_t ) );
+
+// 		if( pxTaskStatusArray != NULL )
+// 		{
+// 			// Generate raw status information about each task.
+// 			uxArraySize = uxTaskGetSystemState( pxTaskStatusArray, uxArraySize, &ulTotalRunTime );
+
+// 			// For percentage calculations.
+// 			ulTotalRunTime /= 100UL;
+
+// 			// Avoid divide by zero errors.
+// 			if( ulTotalRunTime > 0 )
+// 			{
+// 				strcat(pcWriteBuffer,"Task\t\tAbs Time\t%Time\n");
+// 				strcat(pcWriteBuffer,"-------------------------------------\n");
+// 				// For each populated position in the pxTaskStatusArray array,
+// 				// format the raw data as human readable ASCII data
+// 				for( x = 0; x < uxArraySize; x++ )
+// 				{
+// 					// What percentage of the total run time has the task used?
+// 					// This will always be rounded down to the nearest integer.
+// 					// ulTotalRunTimeDiv100 has already been divided by 100.
+// 					ulStatsAsPercentage = pxTaskStatusArray[ x ].ulRunTimeCounter / ulTotalRunTime;
+
+// 					if( ulStatsAsPercentage > 0UL )
+// 					{
+// 						strcat(pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName);
+// 						strcat(pcWriteBuffer,"\t\t");
+// 						strcat(pcWriteBuffer, ultostr(pxTaskStatusArray[ x ].ulRunTimeCounter, buffer, 10));
+// 						strcat(pcWriteBuffer,"\t\t");
+// 						strcat(pcWriteBuffer,ultostr(ulStatsAsPercentage, buffer, 10));
+// 						strcat(pcWriteBuffer,"%\r\n");
+// 					}
+// 					else
+// 					{
+// 					// 	// If the percentage is zero here then the task has
+// 					// 	// consumed less than 1% of the total run time.
+// 						strcat(pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName);
+// 						strcat(pcWriteBuffer,"\t\t");
+// 						strcat(pcWriteBuffer, ultostr(pxTaskStatusArray[ x ].ulRunTimeCounter, buffer, 10));
+// 						strcat(pcWriteBuffer,"\t\t");
+// 						strcat(pcWriteBuffer,"<1%");
+// 						strcat(pcWriteBuffer,"\r\n");
+// 					}
+					
+// 					pcWriteBuffer += strlen( ( char * ) pcWriteBuffer );
+// 				}
+// 				strcat(pcWriteBuffer, "\n\n");
+// 				pcWriteBuffer += strlen( ( char * ) pcWriteBuffer );
+// 			}
+
+// 			// The array is no longer needed, free the memory it consumes.
+// 			vPortFree( pxTaskStatusArray );
+// 		}
+// }
+
+// char *ultostr(unsigned long value, char *ptr, int base)
+// {
+//   unsigned long t = 0, res = 0;
+//   unsigned long tmp = value;
+//   int count = 0;
+
+//   if (NULL == ptr)
+//   {
+//     return NULL;
+//   }
+
+//   if (tmp == 0)
+//   {
+//     count++;
+//   }
+
+//   while(tmp > 0)
+//   {
+//     tmp = tmp/base;
+//     count++;
+//   }
+
+//   ptr += count;
+
+//   *ptr = '\0';
+
+//   do
+//   {
+//     res = value - base * (t = value / base);
+//     if (res < 10)
+//     {
+//       * -- ptr = '0' + res;
+//     }
+//     else if ((res >= 10) && (res < 16))
+//     {
+//         * --ptr = 'A' - 10 + res;
+//     }
+//   } while ((value = t) != 0);
+
+//   return(ptr);
+// }

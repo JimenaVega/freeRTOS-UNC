@@ -13,7 +13,7 @@ interés del mercado por ingenieros especializados en esta área.
 Dentro de /src correr:
 
 ```
-make
+make all
 
 qemu-system-arm -serial stdio -machine lm3s811evb -kernel gcc/RTOSDemo.axf
 ```
@@ -27,14 +27,28 @@ static void vTempSensorTask(void *p);
 ```
 2. Una tarea que reciba los valores del sensor y aplique un filtro pasa bajos.
 Donde cada valor resultante es el promedio de las ultimas N mediciones.
-
+```C
+static void vFilterTask(void *pvParameters)
+```
 3. Una tarea que grafica en el display los valores de temperatura en el tiempo.
+
+```C
+static void vDisplayTask(void *pvParameters)
+```
    
 4. Se debe poder recibir comandos por la interfaz UART para cambiar el N
 del filtro.
 
+```C
+void vUART_ISR(void) 
+```
+
 5. Calcular el stack necesario para cada task. Realizar el análisis utilizando
 uxTaskGetStackHighWaterMark o vApplicationStackOverflowHook.
+
+```C
+static void vWaterMark(void *pvParameters)
+```
 
 6. Implementar una tarea tipo top de linux, que muestre periódicamente
 estadı́sticas de las tareas (uso de cpu, uso de memoria, etc).

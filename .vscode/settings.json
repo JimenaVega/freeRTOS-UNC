@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "stdlib.h": "c",
+        "timers.h": "c",
+        "stack_macros.h": "c"
+    }
+}
