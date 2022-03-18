@@ -111,11 +111,11 @@ int main(void){
 	//4 Top
 	//5 Water mark
 	/* Start the tasks defined within the file. */
-	xTaskCreate(vFilterTask, "1", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &filterHandle );
-	xTaskCreate(vTempSensorTask, "2", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &sensorHandle);
-	xTaskCreate(vDisplayTask, "3", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &displayHandle );
-	xTaskCreate(vWaterMark, "5", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL);
-	xTaskCreate(vTopTask, "4", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL);
+	xTaskCreate(vFilterTask, "Fil", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &filterHandle );
+	xTaskCreate(vTempSensorTask, "Sen", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &sensorHandle);
+	xTaskCreate(vDisplayTask, "Dis", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, &displayHandle );
+	//xTaskCreate(vWaterMark, "WM", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL);
+	//xTaskCreate(vTopTask, "Top", configMINIMAL_STACK_SIZE, NULL, mainCHECK_TASK_PRIORITY, NULL);
 	
 	//Start the scheduler.
 	vTaskStartScheduler();
@@ -158,7 +158,7 @@ static void vTempSensorTask(void *p){
 
 	int temp = 0;
 	int t = 1;
-	const TickType_t xDelay = 1000; //100 Hz
+	const TickType_t xDelay = 10; //10ms 100 Hz
 	int delta = 1;
 
 	for(;;){
@@ -235,7 +235,6 @@ char *longToChar(unsigned long value, char *ptr, int base) {
 
 static void vFilterTask(void *pvParameters){
 
-	
 	char* output = "";
 	const TickType_t xDelay = 10; //100ms
 	unsigned char *pucImage;
@@ -253,7 +252,7 @@ static void vFilterTask(void *pvParameters){
 
 		int acum = 0;
 
-		//xQueueReceive(xAvgQueue, &rcv, portMAX_DELAY);
+		xQueueReceive(xAvgQueue, &rcv, portMAX_DELAY);
 		xQueueReceive(xUARTQueue, &N, 0);
 		N_char = intToChar(N);
 		
@@ -274,8 +273,6 @@ static void vFilterTask(void *pvParameters){
 
 		xQueueSend(xPrintQueue, &avg, portMAX_DELAY);
 		vTaskDelay(xDelay);
-		
-		
 	}
 
 }
@@ -286,16 +283,17 @@ static void vDisplayTask(void *pvParameters){
     unsigned portBASE_TYPE uxLine = 0, uxRow = 0;
     unsigned char pucImage[128] = {0};
     uint8_t value_height;
-	TickType_t xLastExecutionTime;
+	//TickType_t xLastExecutionTime;
 
 	/* Initialise xLastExecutionTime so the first call to vTaskDelayUntil()
 	works correctly. */
-	xLastExecutionTime = xTaskGetTickCount();
+	//xLastExecutionTime = xTaskGetTickCount();
 
 
     for( ;; ){
 		/* Perform this check every mainCHECK_DELAY milliseconds. */
-		vTaskDelayUntil( &xLastExecutionTime, mainDISPLAY_DELAY );
+		//vTaskDelayUntil( &xLastExecutionTime, mainDISPLAY_DELAY );
+		//vTaskDelay(20);
        
         xQueueReceive(xPrintQueue, &message, portMAX_DELAY);
         
@@ -331,11 +329,17 @@ static void vWaterMark(void *pvParameters){
 	
 	for(;;){
 
-		taskWaterMark = uxTaskGetStackHighWaterMark(filterHandle);
-		printStatistics("Filter", taskWaterMark);
+		// taskWaterMark = uxTaskGetStackHighWaterMark(filterHandle);
+		// printStatistics("Fil", taskWaterMark);
+		// taskWaterMark = uxTaskGetStackHighWaterMark(sensorHandle);
+		// printStatistics("Sen", taskWaterMark);
 
-		taskWaterMark = uxTaskGetStackHighWaterMark(sensorHandle);
-		printStatistics("Sensor", taskWaterMark);
+
+		// taskWaterMark = uxTaskGetStackHighWaterMark(sensorHandle);
+		// printStatistics("Top", taskWaterMark);
+
+		// taskWaterMark = uxTaskGetStackHighWaterMark(sensorHandle);
+		// printStatistics("Dis", taskWaterMark);
 
 	}
 
@@ -344,12 +348,21 @@ static void vWaterMark(void *pvParameters){
 void printStatistics(char* taskName, UBaseType_t waterMark){
 
 		char* usedStack = "";
+		char data[150];
+		*data = 0x00;
 
-		usedStack = intToChar((configMINIMAL_STACK_SIZE - waterMark) * 4);
+		usedStack = intToChar((configMINIMAL_STACK_SIZE - waterMark));
 
-		OSRAMClear();
-		OSRAMStringDraw(taskName, 0, 0);
-        OSRAMStringDraw(usedStack, 0x3f, 0);
+		strcat(data,taskName);
+		strcat(data, "\t\t");
+		strcat(data, usedStack);
+		strcat(data, "\n");
+
+		sendToUART(data);
+
+		// OSRAMClear();
+		// OSRAMStringDraw(taskName, 0, 0);
+        // OSRAMStringDraw(usedStack, 0x3f, 0);
 		vTaskDelay(1000);
 
 }
@@ -436,7 +449,7 @@ void vTaskGetStats( char *pcWriteBuffer )
 				if( ulStatsAsPercentage > 0UL )
 				{
 					strcat(pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName);
-					strcat(pcWriteBuffer,"\n");
+					strcat(pcWriteBuffer,"\t\t");
 					strcat(pcWriteBuffer, longToChar(pxTaskStatusArray[ x ].ulRunTimeCounter, buffer, 10));
 					//strcat(pcWriteBuffer,"\n");
 					strcat(pcWriteBuffer,"\t\t");
