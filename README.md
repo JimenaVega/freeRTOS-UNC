@@ -10,7 +10,7 @@ de sistemas tales como aviónica, radares, satélites, etc. lo que genera un gra
 interés del mercado por ingenieros especializados en esta área.
 
 ## Ejecucion
-Dentro de /src correr:
+Dentro de */src* correr:
 
 ```
 make all
@@ -35,6 +35,7 @@ static void vFilterTask(void *pvParameters)
 ```C
 static void vDisplayTask(void *pvParameters)
 ```
+![QEMU](./src/img/QEMU.png "QEMU display")
    
 4. Se debe poder recibir comandos por la interfaz UART para cambiar el N
 del filtro.
@@ -46,9 +47,25 @@ void vUART_ISR(void)
 5. Calcular el stack necesario para cada task. Realizar el análisis utilizando
 uxTaskGetStackHighWaterMark o vApplicationStackOverflowHook.
 
+Para poder hacerlo se utilizo la funcion
+```uxTaskGetStackHighWaterMark(NULL);```. Se encontro que la tarea top y tarea display necesitaban mucho más, de otra manera el programa no funcionaba como es debido. Se procedieron a crear las siguientes macros para establecer los tamaños adecuados de cada task:
+
 ```C
-static void vWaterMark(void *pvParameters)
+#define configSENSOR_STACK_SIZE     ( ( unsigned short ) (40))  
+#define configFILTER_STACK_SIZE     ( ( unsigned short ) (60)) 
+#define configDISPLAY_STACK_SIZE    ( ( unsigned short ) (86))
+#define configTOP_STACK_SIZE        ( ( unsigned short ) (100)) 
 ```
 
 6. Implementar una tarea tipo top de linux, que muestre periódicamente
 estadı́sticas de las tareas (uso de cpu, uso de memoria, etc).
+
+```C
+static void vTopTask( void *pvParameters );
+```
+vTopTask utiliza una funcion externa llamada ```getTasksStats( char *writeUART )``` para poder recolectar informacion como el nombre de task, el tiempo que lleva ejecutandose (runtime) y tiempo que lleva ejecutandose relativo al tiempo total (runtime[%])
+
+
+![Top stats](src/img/img1.png)
+
+Para poder utilizar estas estadisticas se debio poner en 1 la flag  ```configGENERATE_RUN_TIME_STATS``` dentro del archivo FreeRTOSConfig.h

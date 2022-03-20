@@ -69,10 +69,9 @@ to exclude the API function. */
 
 //cosas agregadas
 #define configGENERATE_RUN_TIME_STATS           1
-// #define configSUPPORT_STATIC_ALLOCATION             1
 #define configSUPPORT_DYNAMIC_ALLOCATION            1
-#define INCLUDE_uxTaskGetStackHighWaterMark 1 //ver si sacar
-// #define configUSE_STATS_FORMATTING_FUNCTIONS    1
+#define INCLUDE_uxTaskGetStackHighWaterMark 1 
+
 #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS() ( 0UL )
 #define portGET_RUN_TIME_COUNTER_VALUE()    (xTaskGetTickCount()*10)
 
