@@ -136,7 +136,6 @@ static void prvSetupHardware( void ){
 }
 
 
-//Mide entre 18 y 3 grados celsius
 /**
  * @brief Simulates a sensor that measures values between
  * 18 and 3 celsius
@@ -244,7 +243,7 @@ static void vFilterTask(void *pvParameters){
  */
 static void vDisplayTask(void *pvParameters){
 
-    char *message;
+    char *message; // sample average
     unsigned portBASE_TYPE uxLine = 0, uxRow = 0;
     unsigned char pucImage[128] = {0};
     uint8_t value_height;
@@ -257,6 +256,7 @@ static void vDisplayTask(void *pvParameters){
         xQueueReceive(xPrintQueue, &message, portMAX_DELAY);
         
         value_height = (uint8_t)message/8;
+		
 
         if(value_height < 8){
             pucImage[127] = (0b10000000 >> value_height);
