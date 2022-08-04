@@ -14,7 +14,6 @@ Dentro de */src* correr:
 
 ```
 make all
-
 qemu-system-arm -serial stdio -machine lm3s811evb -kernel gcc/RTOSDemo.axf
 ```
 

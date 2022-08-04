@@ -28,8 +28,8 @@ include makedefs
 RTOS_SOURCE_DIR=../rsc/Source
 DEMO_SOURCE_DIR=../rsc/Common/Minimal
 
-CFLAGS+=-I hw_include -I . -I ${RTOS_SOURCE_DIR}/include -I ${RTOS_SOURCE_DIR}/portable/GCC/ARM_CM3 -I ../rsc/Common/include -D GCC_ARMCM3_LM3S102 -D inline=
-CFLAGS+= -g
+CFLAGS+=-I hw_include -I . -I ${RTOS_SOURCE_DIR}/include -I ${RTOS_SOURCE_DIR}/portable/GCC/ARM_CM3 -I ../rsc/Common/include -D GCC_ARMCM3_LM3S102 -g
+
 
 VPATH=${RTOS_SOURCE_DIR}:${RTOS_SOURCE_DIR}/portable/MemMang:${RTOS_SOURCE_DIR}/portable/GCC/ARM_CM3:${DEMO_SOURCE_DIR}:init:hw_include
 

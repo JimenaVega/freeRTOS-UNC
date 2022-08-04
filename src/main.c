@@ -57,6 +57,8 @@ efficient. */
 /* Filter's initial value */
 #define INIT_N 10
 
+#define UNUSED(x) (void)(x)
+
 /* CPU load */
 static volatile unsigned int uxPercentLoadCPU = (unsigned int) 0U; // Last CPU load calculated
 static volatile unsigned int uxIdleTickCount  = (unsigned int) 0U; // How many ticks were in idle task
@@ -255,7 +257,7 @@ static void vDisplayTask(void *pvParameters){
        
         xQueueReceive(xPrintQueue, &message, portMAX_DELAY);
         
-        value_height = (uint8_t)message/8;
+        value_height = (intptr_t)message/8;
 		
 
         if(value_height < 8){
